@@ -1,12 +1,34 @@
 `cnysa` (unpronouncible) is a module that allows you to see information about what the `async_hooks` module is doing under the covers.
 
-# Usage
+# Pre-Require Hook
 
-Require `cynsa` in your application:
+Pre-require `cynsa/register` in your application:
 
 ```bash
-node --require cynsa app.js
+node --require cynsa/register app.js
 ```
+
+If `cnysa.json` exists in the current working directory, it will be used as the configuration passed to the `Cnysa` constructor as described below.
+
+# API
+
+```js
+const { Cnysa } = require('cnysa');
+```
+
+## `new Cnysa(options)`
+
+All options are optional.
+
+* `options.typeFilter`: String or RegExp to use as a filter for `AsyncResource` types.
+
+## `Cnysa#enable()`
+
+Starts emitting output.
+
+## `Cnysa#disable()`
+
+Stops emitting output.
 
 # Understanding output
 

@@ -3,8 +3,12 @@ const chalk = require('chalk').default;
 const fs = require('fs');
 const asyncHooks = require('async_hooks');
 
-class AsyncHelper {
-  constructor() {
+class Cnysa {
+  constructor(options) {
+    if (options.typeFilter) {
+      this.typeFilter = new RegExp(options.typeFilter);
+    }
+
     this.start = Math.floor(Date.now() / 1000) % 1000;
     this.typesTable = {};
     this.triggerTable = {};
@@ -22,6 +26,9 @@ class AsyncHelper {
   }
 
   _init(id, type, trigger, resource) {
+    if (this.typeFilter && !this.typeFilter.exec(type)) {
+      return;
+    }
     this.typesTable[id] = type;
     this.triggerTable[id] = trigger;
     if (type === 'PROMISE') {
@@ -98,13 +105,18 @@ class AsyncHelper {
   }
 
   enable() {
-    asyncHooks.createHook({
+    this.hook = asyncHooks.createHook({
       init: this._init.bind(this),
       before: this._before.bind(this),
       after: this._after.bind(this),
       destroy: this._destroy.bind(this),
       promiseResolve: this._promiseResolve.bind(this)
     }).enable();
+    return this;
+  }
+
+  disable() {
+    this.hook.disable();
     return this;
   }
 
@@ -123,6 +135,4 @@ class AsyncHelper {
   }
 }
 
-const asyncHelper = new AsyncHelper().enable();
-
-module.exports = asyncHelper.print.bind(asyncHelper);
+module.exports.Cnysa = Cnysa;
