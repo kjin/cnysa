@@ -41,7 +41,7 @@ Each of those lines start with a symbol:
 * `-` Destroy
 * `:` Promise Fulfillment
 
-The number that follows is the current time in seconds, mod 1000.
+The number that follows is the current time in seconds, mod 1000. This number might be useful in distinguishing "clusters" of async events.
 
 A string after represents the async resource type.
 
