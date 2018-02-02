@@ -4,7 +4,7 @@ const fs = require('fs');
 const asyncHooks = require('async_hooks');
 
 class Cnysa {
-  constructor(options) {
+  constructor(options = {}) {
     if (options.typeFilter) {
       this.typeFilter = new RegExp(options.typeFilter);
     }
