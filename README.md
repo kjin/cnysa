@@ -51,38 +51,14 @@ For `before` lines, you'll also see the current execution ID (ex), trigger ID (t
 
 `before`-`after` pairs are visualized as indents. A closing brace indicates an `after` event emission.
 
-## Example
+## Examples
 
-Let's say the following is `app.js`:
-
-```js
-const express = require('express');
-
-const server = express()
-  .get('/', (req, res) => res.send("i'm rooting for you"))
-  .listen(8080);
-setTimeout(() => server.close(), 5000);
+```bash
+node --require cnysa/register -e "fs.readFile('package.json', (err, contents) => { console.log('done reading') })"
 ```
 
-Running the command in the "Usage" section gives you (in colors):
+```bash
+(sleep 2 && curl localhost:8080) & node --require cnysa/register -e "http.createServer((req, res) => res.send('hi')).listen(8080)"
+```
 
-```
-+ [  0] TCPWRAP 6:1
-+ [  0] TickObject 7:6:1
-+ [  0] Timeout 8:1
-+ [  0] TIMERWRAP 9:1
-* [  0] TickObject 7|ex 7|tr 6 {
-}
-- [  0] TickObject 7
-* [  5] TIMERWRAP 9|ex 0|tr 0 {
-  * [  5] Timeout 8|ex 8|tr 1 {
-    + [  5] TickObject 10:8:1
-  }
-}
-* [  5] TickObject 10|ex 10|tr 8 {
-}
-- [  5] Timeout 8
-- [  5] TickObject 10
-- [  5] TIMERWRAP 9
-- [  5] TCPWRAP 6
-```
+https://gist.github.com/kjin/a499bfcb7c5e12a80f8c6ad66a30b740
