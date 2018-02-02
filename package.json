@@ -7,7 +7,7 @@
     "async",
     "async_hooks"
   ],
-  "author": "Kelvin Jin (kelvinjin@google.com",
+  "author": "Kelvin Jin (kelvinjin@google.com)",
   "license": "ISC",
   "dependencies": {
     "chalk": "^2.3.0",
