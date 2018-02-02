@@ -8,6 +8,7 @@
     "async_hooks"
   ],
   "author": "Kelvin Jin (kelvinjin@google.com)",
+  "repository": "https://github.com/kjin/cnysa",
   "license": "ISC",
   "dependencies": {
     "chalk": "^2.3.0",
