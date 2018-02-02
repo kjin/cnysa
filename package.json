@@ -1,0 +1,16 @@
+{
+  "name": "cnysa",
+  "version": "0.0.0",
+  "description": "A tool for understanding async-hooks",
+  "main": "index.js",
+  "keywords": [
+    "async",
+    "async_hooks"
+  ],
+  "author": "Kelvin Jin (kelvinjin@google.com",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^2.3.0",
+    "left-pad": "^1.2.0"
+  }
+}
