@@ -12,7 +12,7 @@ class Cnysa {
     this.start = Math.floor(Date.now() / 1000) % 1000;
     this.typesTable = {};
     this.triggerTable = {};
-    this.promiseTable = {};
+    this.promiseTable = new Map();
     this.indent = '';
   }
 
@@ -32,7 +32,7 @@ class Cnysa {
     this.typesTable[id] = type;
     this.triggerTable[id] = trigger;
     if (type === 'PROMISE') {
-      this.promiseTable[resource.promise] = id;
+      this.promiseTable.set(resource.promise, id);
     }
     this._write(this.indent);
     this._write('+ [', 'green');
@@ -125,7 +125,7 @@ class Cnysa {
     this._write('> [', 'white');
     this._write(leftPad(this._getTime(), 3));
     this._write(`] PROMISE `, 'white');
-    this._write(`${this.promiseTable[p]||'?'}`, 'yellow');
+    this._write(`${this.promiseTable.get(p)||'?'}`, 'yellow');
     if (alias) {
       this._write(' aka ', 'white');
       this._write(alias, 'cyan');
