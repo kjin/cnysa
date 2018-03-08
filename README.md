@@ -45,11 +45,9 @@ The number that follows is the current time in seconds, mod 1000. This number mi
 
 A string after represents the async resource type.
 
-After that, you get a list of numbers delimited by `:`. The first number is the `uid` passed in to the corresponding hook, and subsequent numbers follow its `triggerAsyncId` chain.
+The async resource's execution ID follows. For `init` events, if the trigger ID is different than the current execution ID, it is displayed as well.
 
-For `before` lines, you'll also see the current execution ID (ex), trigger ID (tr), and an opening brace.
-
-`before`-`after` pairs are visualized as indents. A closing brace indicates an `after` event emission.
+`before`-`after` pairs are visualized as indents.
 
 ## Examples
 

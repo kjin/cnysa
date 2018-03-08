@@ -11,18 +11,8 @@ class Cnysa {
 
     this.start = Math.floor(Date.now() / 1000) % 1000;
     this.typesTable = {};
-    this.triggerTable = {};
     this.promiseTable = new Map();
     this.indent = '';
-  }
-
-  _createTriggerChain(id) {
-    let result = chalk.yellow(id);
-    while (this.triggerTable[id] !== undefined) {
-      id = this.triggerTable[id];
-      result += `:${chalk.magenta(id)}`;
-    }
-    return result;
   }
 
   _init(id, type, trigger, resource) {
@@ -30,7 +20,6 @@ class Cnysa {
       return;
     }
     this.typesTable[id] = type;
-    this.triggerTable[id] = trigger;
     if (type === 'PROMISE') {
       this.promiseTable.set(resource.promise, id);
     }
@@ -38,11 +27,10 @@ class Cnysa {
     this._write('+ [', 'green');
     this._write(leftPad(this._getTime(), 3));
     this._write(`] ${this.typesTable[id]} `, 'green');
-    this._write(this._createTriggerChain(id));
-    if (resource.parentId) {
-      this._write(' [', 'green');
-      this._write(resource.parentId, 'yellow');
-      this._write(']', 'green');
+    this._write(id, 'yellow');
+    if (asyncHooks.executionAsyncId() !== trigger) {
+      this._write(':', 'green');
+      this._write(trigger, 'magenta');
     }
     this._write('\n');
   }
@@ -54,10 +42,6 @@ class Cnysa {
     this._write(leftPad(this._getTime(), 3));
     this._write(`] ${this.typesTable[id]} `, 'blue');
     this._write(`${id}`, 'yellow');
-    this._write('|ex ');
-    this._write(asyncHooks.executionAsyncId(), 'yellow');
-    this._write('|tr ');
-    this._write(asyncHooks.triggerAsyncId(), 'yellow');
     this._write(' {\n', 'blue');
     this.indent += '  ';
   }
