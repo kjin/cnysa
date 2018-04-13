@@ -3,15 +3,28 @@
   "version": "0.1.0",
   "description": "A tool for understanding async-hooks",
   "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "*.js",
+    "*.d.ts"
+  ],
   "keywords": [
     "async",
-    "async_hooks"
+    "async_hooks",
+    "visualization"
   ],
+  "scripts": {
+    "prepack": "tsc"
+  },
   "author": "Kelvin Jin (kelvinjin@google.com)",
   "repository": "https://github.com/kjin/cnysa",
   "license": "ISC",
   "dependencies": {
-    "chalk": "^2.3.0",
+    "colors": "^1.2.1",
     "left-pad": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/colors": "^1.2.1",
+    "@types/node": "^9.6.5"
   }
 }

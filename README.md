@@ -1,5 +1,7 @@
 `cnysa` (unpronouncible) is a module that allows you to see information about what the `async_hooks` module is doing under the covers.
 
+__Note: This module currently uses the `colors` module.__
+
 # Pre-Require Hook
 
 Pre-require `cynsa/register` in your application:
@@ -20,43 +22,29 @@ const { Cnysa } = require('cnysa');
 
 All options are optional.
 
-* `options.typeFilter`: String or RegExp to use as a filter for `AsyncResource` types.
+* `options.width`: Maximum number of characters to print on a single line before wrapping. Defaults to the current terminal width.
+* `options.ignoreTypes`: String or RegExp to filter out `AsyncResource` types.
+* `options.highlightTypes`: String or RegExp to highlight certain `AsyncResource` types and their descendants.
 
 ## `Cnysa#enable()`
 
-Starts emitting output.
+Starts recording async events and registers a process exit hook.
 
 ## `Cnysa#disable()`
 
-Stops emitting output.
+Stops recording async events and unregisters the process exit hook.
 
 # Understanding output
 
-For each `init`, `before`, `promiseResolve`, and `destroy` event, a line will be printed.
+For each `AsyncResource`, a time line will be printed, with a number of colored symbols:
 
-Each of those lines start with a symbol:
-
-* `+` Init
-* `*` Before
-* `-` Destroy
-* `:` Promise Fulfillment
-
-The number that follows is the current time in seconds, mod 1000. This number might be useful in distinguishing "clusters" of async events.
-
-A string after represents the async resource type.
-
-The async resource's execution ID follows. For `init` events, if the trigger ID is different than the current execution ID, it is displayed as well.
-
-`before`-`after` pairs are visualized as indents.
+* Green `*` represents the async resource creation.
+* Red `*` represents its destruction.
+* Blue `{...}` represent running in an async scope.
+* Gray `-` indicates the lifetime of the resource creation, and is bookended by `*` symbols.
 
 ## Examples
 
 ```bash
 node --require cnysa/register -e "fs.readFile('package.json', (err, contents) => { console.log('done reading') })"
 ```
-
-```bash
-(sleep 2 && curl localhost:8080) & node --require cnysa/register -e "http.createServer((req, res) => res.send('hi')).listen(8080)"
-```
-
-https://gist.github.com/kjin/a499bfcb7c5e12a80f8c6ad66a30b740

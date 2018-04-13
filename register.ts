@@ -1,5 +1,5 @@
-const { Cnysa } = require('.');
-const fs = require('fs');
+import { Cnysa } from './index';
+import * as fs from 'fs';
 
 const expectedConfigPath = `${process.cwd()}/cnysa.json`;
 let config = {};
