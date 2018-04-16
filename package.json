@@ -20,11 +20,10 @@
   "repository": "https://github.com/kjin/cnysa",
   "license": "ISC",
   "dependencies": {
-    "colors": "^1.2.1",
+    "chalk": "^2.3.2",
     "left-pad": "^1.2.0"
   },
   "devDependencies": {
-    "@types/colors": "^1.2.1",
     "@types/node": "^9.6.5"
   }
 }

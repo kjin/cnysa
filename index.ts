@@ -1,12 +1,37 @@
 import * as ah from 'async_hooks';
-import 'colors';
+import chalk, { Chalk } from 'chalk';
 import leftPad = require('left-pad');
+import { Writable } from 'stream';
 
 export interface CnysaOptions {
+  width: number;
   ignoreTypes: RegExp|string;
   highlightTypes: RegExp|string;
+  ignoreUnhighlighted: boolean;
+  padding: number;
   colors: Array<string>;
-  width: number;
+  progressStream: Writable|string;
+}
+
+class DevNull extends Writable {
+  _write(chunk: any, encoding: string, callback: (err?: Error) => void) {
+    setImmediate(callback);
+  }
+}
+
+const isRemovableLine = (str: string) => {
+  while (str = str.trim()) {
+    const firstSpace = str.indexOf(' ');
+    if (str.slice(0, firstSpace).match(/[^\|]/)) {
+      return false;
+    }
+    const lastSpace = str.lastIndexOf(' ');
+    if (str.slice(lastSpace + 1).match(/[^\|]/)) {
+      return false;
+    }
+    str = str.slice(firstSpace + 1, lastSpace);
+  }
+  return true;
 }
 
 /**
@@ -30,9 +55,14 @@ const until = <T>(array: T[], predicate: (input: T) => boolean): T[] => {
   return array.slice(0, array.findIndex(e => !predicate(e)));
 }
 
+interface StringData {
+  str: string;
+  dirty: boolean;
+}
+
 class StringRowsBuilder {
   private readonly maxLength: number;
-  private data: string[] = [];
+  private data: Array<StringData> = [];
   private currentLength = 0;
 
   constructor(maxLength: number) {
@@ -40,11 +70,13 @@ class StringRowsBuilder {
   }
 
   // treats as if one char
-  appendChar(char: string, ...styles: Array<keyof String|undefined>) {
+  appendChar(char: string, ...styles: Array<keyof Chalk|undefined>) {
     if (this.currentLength === 0) {
-      this.data.push('');
+      this.data.push({ str: '', dirty: false });
     }
-    this.data[this.data.length - 1] += styles.reduce((acc, next) => next ? acc[next as any] : acc, char);
+    const top = this.data[this.data.length - 1];
+    top.str += styles.reduce((acc, next) => next ? (chalk[next] as typeof chalk)(acc) : acc, char);
+    top.dirty = top.dirty || !(char === ' ' || char === '|');
     if (++this.currentLength === this.maxLength) {
       this.currentLength = 0;
     }
@@ -59,9 +91,11 @@ export class Cnysa {
   private width: number;
   private ignoreTypes: RegExp;
   private highlightTypes: RegExp;
-  private getColor: IterableIterator<keyof String>;
+  private ignoreUnhighlighted: boolean;
+  private getColor: IterableIterator<keyof Chalk>;
+  private padding: number;
 
-  private resources: { [key: number]: { uid: number, type: string, color?: keyof String } };
+  private resources: { [key: number]: { uid: number, type: string, color?: keyof Chalk } };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
   private processOnExit: () => void;
@@ -71,7 +105,10 @@ export class Cnysa {
     width: process.stdout.columns || 80,
     ignoreTypes: / /,
     highlightTypes: / /,
-    colors: ['bgMagenta', 'bgYellow', 'bgCyan']
+    ignoreUnhighlighted: false,
+    padding: 1,
+    colors: ['bgMagenta', 'bgYellow', 'bgCyan'],
+    progressStream: new DevNull()
   };
 
   constructor(options: Partial<CnysaOptions>) {
@@ -83,13 +120,15 @@ export class Cnysa {
     this.highlightTypes = typeof canonicalOpts.highlightTypes === 'string' ?
       new RegExp(canonicalOpts.highlightTypes) : canonicalOpts.highlightTypes;
     this.getColor = (function* () {
-      const colors = canonicalOpts.colors as Array<keyof String>;
+      const colors = canonicalOpts.colors as Array<keyof Chalk>;
       while (true) {
         for (const color of colors) {
           yield color;
         }
       }
-    })();      
+    })();
+    this.ignoreUnhighlighted = canonicalOpts.ignoreUnhighlighted;
+    this.padding = canonicalOpts.padding;
 
     this.resources = {
       1: { uid: 1, type: '(initial)' }
@@ -145,15 +184,17 @@ export class Cnysa {
       }, -Infinity);
       const maxLength = Object.keys(this.resources).reduce((acc, key) => {
         const k = Number(key);
-        return Math.max(acc, `${this.resources[k].uid.toString().magenta} ${this.resources[k].type.yellow} `.length);
+        return Math.max(acc, `${chalk.magenta(this.resources[k].uid.toString())} ${chalk.yellow(this.resources[k].type)} `.length);
       }, -Infinity);
       const stack: any[] = [];
       const paddedEvents = [];
       for (const event of this.events) {
-        // if (resources[event.uid].color) {
+        if (!this.ignoreUnhighlighted || this.resources[event.uid].color) {
           paddedEvents.push(event);
-          paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
-        // }
+          for (let i = 0; i < this.padding; i++) {
+            paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
+          }
+        }
       }
       const adjustedWidth = this.width - uncoloredLength;
       const eventStrings: { [k: number]: { alive: boolean, str: StringRowsBuilder } } = {};
@@ -220,10 +261,10 @@ export class Cnysa {
         ...interleave(Object.keys(this.resources).map(key => {
           const k = Number(key);
           return eventStrings[k].str.getData().map(rhs => {
-            if (rhs.strip.match(/^(\s|\|)+$/)) {
+            if (!rhs.dirty) {
               return '';
             } else {
-              return leftPad(`${this.resources[k].uid.toString().magenta} ${this.resources[k].type.yellow} `, maxLength) + rhs;
+              return leftPad(`${chalk.magenta(this.resources[k].uid.toString())} ${chalk.yellow(this.resources[k].type)} `, maxLength) + rhs.str;
             }
           });
         }), separator).filter(line => line.length > 0),
