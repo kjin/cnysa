@@ -10,13 +10,6 @@ export interface CnysaOptions {
   ignoreUnhighlighted: boolean;
   padding: number;
   colors: Array<string>;
-  progressStream: Writable|string;
-}
-
-class DevNull extends Writable {
-  _write(chunk: any, encoding: string, callback: (err?: Error) => void) {
-    setImmediate(callback);
-  }
 }
 
 const isRemovableLine = (str: string) => {
@@ -107,8 +100,7 @@ export class Cnysa {
     highlightTypes: / /,
     ignoreUnhighlighted: false,
     padding: 1,
-    colors: ['bgMagenta', 'bgYellow', 'bgCyan'],
-    progressStream: new DevNull()
+    colors: ['bgMagenta', 'bgYellow', 'bgCyan']
   };
 
   constructor(options: Partial<CnysaOptions>) {
@@ -189,7 +181,7 @@ export class Cnysa {
       const stack: any[] = [];
       const paddedEvents = [];
       for (const event of this.events) {
-        if (!this.ignoreUnhighlighted || this.resources[event.uid].color) {
+        if (event.uid === 1 || !this.ignoreUnhighlighted || this.resources[event.uid].color) {
           paddedEvents.push(event);
           for (let i = 0; i < this.padding; i++) {
             paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
