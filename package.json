@@ -5,6 +5,7 @@
   "main": "index.js",
   "types": "index.d.ts",
   "files": [
+    "doc",
     "*.js",
     "*.d.ts"
   ],
@@ -20,6 +21,7 @@
   "repository": "https://github.com/kjin/cnysa",
   "license": "ISC",
   "dependencies": {
+    "ansi-to-svg": "^1.4.1",
     "chalk": "^2.3.2",
     "left-pad": "^1.2.0"
   },

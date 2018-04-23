@@ -1,5 +1,6 @@
 import * as ah from 'async_hooks';
 import chalk, { Chalk } from 'chalk';
+import * as fs from 'fs';
 import leftPad = require('left-pad');
 import { Writable } from 'stream';
 
@@ -10,6 +11,7 @@ export interface CnysaOptions {
   ignoreUnhighlighted: boolean;
   padding: number;
   colors: Array<string>;
+  svg: string;
 }
 
 const isRemovableLine = (str: string) => {
@@ -87,6 +89,7 @@ export class Cnysa {
   private ignoreUnhighlighted: boolean;
   private getColor: IterableIterator<keyof Chalk>;
   private padding: number;
+  private svg: string;
 
   private resources: { [key: number]: { uid: number, type: string, color?: keyof Chalk } };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
@@ -100,7 +103,8 @@ export class Cnysa {
     highlightTypes: / /,
     ignoreUnhighlighted: false,
     padding: 1,
-    colors: ['bgMagenta', 'bgYellow', 'bgCyan']
+    colors: ['bgMagenta', 'bgYellow', 'bgCyan'],
+    svg: ''
   };
 
   constructor(options: Partial<CnysaOptions>) {
@@ -121,6 +125,7 @@ export class Cnysa {
     })();
     this.ignoreUnhighlighted = canonicalOpts.ignoreUnhighlighted;
     this.padding = canonicalOpts.padding;
+    this.svg = canonicalOpts.svg;
 
     this.resources = {
       1: { uid: 1, type: '(initial)' }
@@ -262,7 +267,12 @@ export class Cnysa {
         }), separator).filter(line => line.length > 0),
         separator
       ].join('\n');
-      console.log(output);
+      if (this.svg) {
+        const ats = require('ansi-to-svg');
+        fs.writeFileSync(this.svg, ats(output));
+      } else {
+        console.log(output);
+      }
     };
   }
 
