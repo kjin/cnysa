@@ -48,3 +48,5 @@ For each `AsyncResource`, a time line will be printed, with a number of colored 
 ```bash
 node --require cnysa/register -e "fs.readFile('package.json', (err, contents) => { console.log('done reading') })"
 ```
+
+![example-readfile.svg](./doc/images/example-readfile.svg)
