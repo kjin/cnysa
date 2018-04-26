@@ -4,14 +4,23 @@ import * as fs from 'fs';
 import leftPad = require('left-pad');
 import { Writable } from 'stream';
 
+export type Serializable<T> = {
+  [P in keyof T]: T[P] extends string|number|boolean ? T[P] :
+                  T[P] extends Array<infer S>|IterableIterator<infer S> ? Array<Serializable<S>> :
+                  T[P] extends Function|RegExp ? string :
+                  T[P] extends {} ? Serializable<T[P]> : string;
+}
+
+export type Flexible<T> = Partial<T & Serializable<T>>;
+
 export interface CnysaOptions {
   width: number;
-  ignoreTypes: RegExp|string;
-  highlightTypes: RegExp|string;
+  ignoreTypes: RegExp;
+  highlightTypes: RegExp;
   ignoreUnhighlighted: boolean;
   padding: number;
-  colors: Array<string>;
-  svg: string;
+  colors: IterableIterator<keyof Chalk>;
+  format: string;
 }
 
 const isRemovableLine = (str: string) => {
@@ -87,14 +96,13 @@ export class Cnysa {
   private ignoreTypes: RegExp;
   private highlightTypes: RegExp;
   private ignoreUnhighlighted: boolean;
-  private getColor: IterableIterator<keyof Chalk>;
   private padding: number;
-  private svg: string;
+  private colors: IterableIterator<keyof Chalk>;
+  private format: string;
 
-  private resources: { [key: number]: { uid: number, type: string, color?: keyof Chalk } };
+  private resources: { [key: number]: { tid?: number, uid: number, type: string, color?: keyof Chalk } };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
-  private processOnExit: () => void;
   private globalContinuationEnded = false;
 
   public static DEFAULTS: CnysaOptions = {
@@ -103,11 +111,18 @@ export class Cnysa {
     highlightTypes: / /,
     ignoreUnhighlighted: false,
     padding: 1,
-    colors: ['bgMagenta', 'bgYellow', 'bgCyan'],
-    svg: ''
+    colors: (function* () {
+      const colors = ['bgMagenta', 'bgYellow', 'bgCyan'] as Array<keyof Chalk>;
+      while (true) {
+        for (const color of colors) {
+          yield color;
+        }
+      }
+    })(),
+    format: 'default'
   };
 
-  constructor(options: Partial<CnysaOptions>) {
+  constructor(options: Flexible<CnysaOptions> = {}) {
     // Initialize options.
     const canonicalOpts: CnysaOptions = Object.assign({}, Cnysa.DEFAULTS, options);
     this.width = canonicalOpts.width;
@@ -115,17 +130,10 @@ export class Cnysa {
       new RegExp(canonicalOpts.ignoreTypes) : canonicalOpts.ignoreTypes;
     this.highlightTypes = typeof canonicalOpts.highlightTypes === 'string' ?
       new RegExp(canonicalOpts.highlightTypes) : canonicalOpts.highlightTypes;
-    this.getColor = (function* () {
-      const colors = canonicalOpts.colors as Array<keyof Chalk>;
-      while (true) {
-        for (const color of colors) {
-          yield color;
-        }
-      }
-    })();
     this.ignoreUnhighlighted = canonicalOpts.ignoreUnhighlighted;
     this.padding = canonicalOpts.padding;
-    this.svg = canonicalOpts.svg;
+    this.colors = canonicalOpts.colors;
+    this.format = canonicalOpts.format;
 
     this.resources = {
       1: { uid: 1, type: '(initial)' }
@@ -137,11 +145,14 @@ export class Cnysa {
     }];
 
     this.hook = ah.createHook({
-      init: (uid, type) => {
+      init: (uid, type, triggerId) => {
         if (!type.match(this.ignoreTypes)) {
           const eid = ah.executionAsyncId();
-          const color = (this.resources[eid] && this.resources[eid].color) || (type.match(this.highlightTypes) ? this.getColor.next().value : undefined);
+          const color = (this.resources[eid] && this.resources[eid].color) || (type.match(this.highlightTypes) ? this.colors.next().value : undefined);
           this.resources[uid] = { uid, type, color };
+          if (triggerId !== eid) {
+            this.resources[uid].tid = triggerId;
+          }
           this.events.push({ timestamp: Date.now(), uid, type: 'init' });
         }
       },
@@ -172,117 +183,125 @@ export class Cnysa {
         this.events.push({ timestamp: Date.now(), uid, type: 'promiseResolve' });
       }
     });
-
-    this.processOnExit = () => {
-      this.hook.disable();
-      const uncoloredLength = Object.keys(this.resources).reduce((acc, key) => {
-        const k = Number(key);
-        return Math.max(acc, `${this.resources[k].uid.toString()} ${this.resources[k].type} `.length);
-      }, -Infinity);
-      const maxLength = Object.keys(this.resources).reduce((acc, key) => {
-        const k = Number(key);
-        return Math.max(acc, `${chalk.magenta(this.resources[k].uid.toString())} ${chalk.yellow(this.resources[k].type)} `.length);
-      }, -Infinity);
-      const stack: any[] = [];
-      const paddedEvents = [];
-      for (const event of this.events) {
-        if (event.uid === 1 || !this.ignoreUnhighlighted || this.resources[event.uid].color) {
-          paddedEvents.push(event);
-          for (let i = 0; i < this.padding; i++) {
-            paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
-          }
-        }
-      }
-      const adjustedWidth = this.width - uncoloredLength;
-      const eventStrings: { [k: number]: { alive: boolean, str: StringRowsBuilder } } = {};
-      for (const event of paddedEvents) {
-        Object.keys(this.resources).forEach(key => {
-          const k = Number(key);
-          if (!eventStrings[k]) {
-            eventStrings[k] = { alive: false, str: new StringRowsBuilder(adjustedWidth) };
-          }
-          if (event.uid === k) {
-            if (event.type === 'init') {
-              eventStrings[k].str.appendChar('*', 'green', this.resources[k].color);
-              eventStrings[k].alive = true;
-            } else if (event.type === 'before') {
-              eventStrings[k].str.appendChar('{', 'blue', this.resources[k].color);
-              stack.push(k);
-            } else if (event.type === 'after') {
-              eventStrings[k].str.appendChar('}', 'blue', this.resources[k].color);
-              stack.pop();
-            } else if (event.type === 'destroy') {
-              eventStrings[k].str.appendChar('*', 'red', this.resources[k].color);
-              eventStrings[k].alive = false;
-            } else if (event.type === 'promiseResolve') {
-              eventStrings[k].str.appendChar('*', 'gray', this.resources[k].color);
-              eventStrings[k].alive = false;
-            } else {
-              eventStrings[k].str.appendChar('?', 'gray', this.resources[k].color);
-            }
-          } else {
-            if (event.type === 'init' && stack.length > 0) {
-              if (event.uid > k) {
-                if (stack[stack.length - 1] < k) {
-                  eventStrings[k].str.appendChar('|', 'green', this.resources[event.uid].color);
-                  return;
-                } else if (stack[stack.length - 1] === k) {
-                  eventStrings[k].str.appendChar('.', 'green', this.resources[event.uid].color);
-                  return;
-                }
-              } else if (event.uid < k) {
-                if (stack[stack.length - 1] > k) {
-                  eventStrings[k].str.appendChar('|', 'green', this.resources[k].color);
-                  return;
-                } else if (stack[stack.length - 1] === k) {
-                  eventStrings[k].str.appendChar('.', 'green', this.resources[k].color);
-                  return;
-                }
-              }
-            }
-            if (stack.indexOf(k) !== -1) {
-              eventStrings[k].str.appendChar('.', 'blue', this.resources[k].color);
-            } else {
-              if (eventStrings[k].alive) {
-                eventStrings[k].str.appendChar('-', 'gray', this.resources[k].color);
-              } else {
-                eventStrings[k].str.appendChar(' ');
-              }
-            }
-          }
-        });
-      }
-      const separator = new Array(this.width).fill(':').join('');
-      const output = [
-        separator,
-        ...interleave(Object.keys(this.resources).map(key => {
-          const k = Number(key);
-          return eventStrings[k].str.getData().map(rhs => {
-            if (!rhs.dirty) {
-              return '';
-            } else {
-              return leftPad(`${chalk.magenta(this.resources[k].uid.toString())} ${chalk.yellow(this.resources[k].type)} `, maxLength) + rhs.str;
-            }
-          });
-        }), separator).filter(line => line.length > 0),
-        separator
-      ].join('\n');
-      if (this.svg) {
-        const ats = require('ansi-to-svg');
-        fs.writeFileSync(this.svg, ats(output));
-      } else {
-        console.log(output);
-      }
-    };
   }
 
   enable() {
     this.hook.enable();
-    process.on('exit', this.processOnExit);
   }
 
   disable() {
     this.hook.disable();
-    process.removeListener('exit', this.processOnExit);
+  }
+
+  getAsyncSnapshot(): string {
+    if (!this.globalContinuationEnded) {
+      this.globalContinuationEnded = true;
+      this.events.push({
+        timestamp: Date.now(),
+        uid: 1,
+        type: 'after'
+      });
+    }
+    const maxLength = Object.keys(this.resources).reduce((acc, key) => {
+      const k = Number(key);
+      const tidLength = this.resources[k].tid !== undefined ? (this.resources[k].uid.toString().length + 3) : 0;
+      const uidLength = this.resources[k].uid.toString().length + 1;
+      const typeLength = this.resources[k].type.length + 1;
+      return Math.max(acc, tidLength + uidLength + typeLength);
+    }, -Infinity);
+    const stack: any[] = [];
+    const paddedEvents = [];
+    for (const event of this.events) {
+      if (event.uid === 1 || !this.ignoreUnhighlighted || this.resources[event.uid].color) {
+        paddedEvents.push(event);
+        for (let i = 0; i < this.padding; i++) {
+          paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
+        }
+      }
+    }
+    const adjustedWidth = this.width - maxLength;
+    const eventStrings: { [k: number]: { alive: boolean, str: StringRowsBuilder } } = {};
+    for (const event of paddedEvents) {
+      Object.keys(this.resources).forEach(key => {
+        const k = Number(key);
+        if (!eventStrings[k]) {
+          eventStrings[k] = { alive: false, str: new StringRowsBuilder(adjustedWidth) };
+        }
+        if (event.uid === k) {
+          if (event.type === 'init') {
+            eventStrings[k].str.appendChar('*', 'green', this.resources[k].color);
+            eventStrings[k].alive = true;
+          } else if (event.type === 'before') {
+            eventStrings[k].str.appendChar('{', 'blue', this.resources[k].color);
+            stack.push(k);
+          } else if (event.type === 'after') {
+            eventStrings[k].str.appendChar('}', 'blue', this.resources[k].color);
+            stack.pop();
+          } else if (event.type === 'destroy') {
+            eventStrings[k].str.appendChar('*', 'red', this.resources[k].color);
+            eventStrings[k].alive = false;
+          } else if (event.type === 'promiseResolve') {
+            eventStrings[k].str.appendChar('*', 'gray', this.resources[k].color);
+            eventStrings[k].alive = false;
+          } else {
+            eventStrings[k].str.appendChar('?', 'gray', this.resources[k].color);
+          }
+        } else {
+          if (event.type === 'init' && stack.length > 0) {
+            if (event.uid > k) {
+              if (stack[stack.length - 1] < k) {
+                eventStrings[k].str.appendChar('|', 'green', this.resources[event.uid].color);
+                return;
+              } else if (stack[stack.length - 1] === k) {
+                eventStrings[k].str.appendChar('.', 'green', this.resources[event.uid].color);
+                return;
+              }
+            } else if (event.uid < k) {
+              if (stack[stack.length - 1] > k) {
+                eventStrings[k].str.appendChar('|', 'green', this.resources[k].color);
+                return;
+              } else if (stack[stack.length - 1] === k) {
+                eventStrings[k].str.appendChar('.', 'green', this.resources[k].color);
+                return;
+              }
+            }
+          }
+          if (stack.indexOf(k) !== -1) {
+            eventStrings[k].str.appendChar('.', 'blue', this.resources[k].color);
+          } else {
+            if (eventStrings[k].alive) {
+              eventStrings[k].str.appendChar('-', 'gray', this.resources[k].color);
+            } else {
+              eventStrings[k].str.appendChar(' ');
+            }
+          }
+        }
+      });
+    }
+    const separator = new Array(this.width).fill(':').join('');
+    const output = [
+      separator,
+      ...interleave(Object.keys(this.resources).map(key => {
+        const k = Number(key);
+        return eventStrings[k].str.getData().map(rhs => {
+          if (!rhs.dirty) {
+            return '';
+          } else {
+            if (this.resources[k].tid !== undefined) {
+              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} (${chalk.green(`${this.resources[k].tid!}`)}) ${chalk.yellow(this.resources[k].type)} `, maxLength + (chalk.magenta(' ').length - 1) * 3) + rhs.str;
+            } else {
+              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} ${chalk.yellow(this.resources[k].type)} `, maxLength + (chalk.magenta(' ').length - 1) * 2) + rhs.str;
+            }
+          }
+        });
+      }), separator).filter(line => line.length > 0),
+      separator
+    ].join('\n');
+    if (this.format === 'svg') {
+      const ansiToSvg = require('ansi-to-svg');
+      return ansiToSvg(output);
+    } else {
+      return output;
+    }
   }
 }

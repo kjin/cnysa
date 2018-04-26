@@ -23,20 +23,28 @@ const { Cnysa } = require('cnysa');
 All options are optional.
 
 * `options.width`: Maximum number of characters to print on a single line before wrapping. Defaults to the current terminal width.
-* `options.ignoreTypes`: String or RegExp to filter out `AsyncResource` types.
-* `options.highlightTypes`: String or RegExp to highlight certain `AsyncResource` types and their descendants.
+* `options.ignoreTypes`: A string or RegExp to filter out `AsyncResource` types.
+* `options.highlightTypes`: A string or RegExp to highlight certain `AsyncResource` types and their descendants.
+* `options.ignoreUnhighlighted`: Boolean to determine whether unhighlighted types should be ignored.
+* `options.padding`: Number that represents the amount of space between each depicted event.
+* `options.colors`: An array of strings that represent colors to use when highlighting.
+* `options.format`: A string that represents how the output should be formatted. Currently, the available options are `'default'` and `'svg'` (which uses [`ansi-to-svg`](https://github.com/F1LT3R/ansi-to-svg)).
 
 ## `Cnysa#enable()`
 
-Starts recording async events and registers a process exit hook.
+Starts recording async events.
 
 ## `Cnysa#disable()`
 
-Stops recording async events and unregisters the process exit hook.
+Stops recording async events.
+
+## `Cnysa#getAsyncSnapshot()`
+
+Returns a formatted async ancestry tree.
 
 # Understanding output
 
-For each `AsyncResource`, a time line will be printed, with a number of colored symbols:
+For each `AsyncResource`, a timeline will be printed, with a number of colored symbols:
 
 * Green `*` represents the async resource creation.
 * Red `*` represents its destruction.
