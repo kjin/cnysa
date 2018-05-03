@@ -93,10 +93,13 @@ type CnysaResource = {
   tid?: number,
   uid: number,
   type: string,
+  internal: boolean,
   parents: number[]
 };
 
 export class Cnysa {
+  private static activeInstances: Cnysa[] = [];
+
   private currentScopes: number[];
   private resources: { [key: number]: CnysaResource };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
@@ -111,9 +114,16 @@ export class Cnysa {
     format: 'default'
   };
 
+  public static get(): Cnysa {
+    if (Cnysa.activeInstances.length === 0) {
+      Cnysa.activeInstances.push(new Cnysa());
+    }
+    return Cnysa.activeInstances[Cnysa.activeInstances.length - 1];
+  }
+
   constructor() {
     this.resources = {
-      1: { uid: 1, type: '(initial)', parents: [] }
+      1: { uid: 1, type: '(initial)', parents: [], internal: false }
     };
     this.currentScopes = [1];
     this.events = [{
@@ -126,14 +136,19 @@ export class Cnysa {
       init: (uid, type, triggerId) => {
         const eid = ah.executionAsyncId();
         
-        this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x) };
-        if (triggerId !== eid) {
-          this.resources[uid].tid = triggerId;
+        if (type.startsWith('cnysa')) {
+          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x), internal: true };
+          this.events.push({ timestamp: Date.now(), uid, type: 'internal' });
+        } else {
+          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x), internal: false };
+          if (triggerId !== eid) {
+            this.resources[uid].tid = triggerId;
+          }
+          this.events.push({ timestamp: Date.now(), uid, type: 'init' });
         }
-        this.events.push({ timestamp: Date.now(), uid, type: 'init' });
       },
       before: (uid) => {
-        if (this.resources[uid]) {
+        if (this.resources[uid] && !this.resources[uid].internal) {
           if (!this.globalContinuationEnded) {
             this.globalContinuationEnded = true;
             this.events.push({
@@ -148,13 +163,13 @@ export class Cnysa {
         }
       },
       after: (uid) => {
-        if (this.resources[uid]) {
+        if (this.resources[uid] && !this.resources[uid].internal) {
           this.events.push({ timestamp: Date.now(), uid, type: 'after' });
           this.currentScopes.pop();
         }
       },
       destroy: (uid) => {
-        if (this.resources[uid]) {
+        if (this.resources[uid] && !this.resources[uid].internal) {
           this.events.push({ timestamp: Date.now(), uid, type: 'destroy' });
         }
       },
@@ -162,6 +177,8 @@ export class Cnysa {
         this.events.push({ timestamp: Date.now(), uid, type: 'promiseResolve' });
       }
     });
+
+    Cnysa.activeInstances.push(this);
   }
 
   enable() {
@@ -190,6 +207,10 @@ export class Cnysa {
     opts.ignoreTypes = typeof opts.ignoreTypes === 'string' ?
       new RegExp(opts.ignoreTypes) : opts.ignoreTypes;
     return opts as CnysaAsyncSnapshotOptions;
+  }
+
+  mark(name: string|number): void {
+    new ah.AsyncResource(`cnysa(${name})`).emitDestroy();
   }
 
   getAsyncSnapshot(options: Flexible<CnysaAsyncSnapshotOptions> = {}): string {
@@ -252,28 +273,38 @@ export class Cnysa {
           } else if (event.type === 'promiseResolve') {
             eventStrings[k].str.appendChar('*', 'gray');
             eventStrings[k].alive = false;
+          } else if (event.type === 'internal') {
+            eventStrings[k].str.appendChar('*', 'yellow');
           } else {
             eventStrings[k].str.appendChar('?', 'gray');
           }
         } else {
-          if (event.type === 'init' && stack.length > 0) {
-            if (event.uid > k) {
-              if (stack[stack.length - 1] < k) {
-                eventStrings[k].str.appendChar('|', 'green');
-                return;
-              } else if (stack[stack.length - 1] === k) {
-                eventStrings[k].str.appendChar('.', 'green');
-                return;
-              }
-            } else if (event.uid < k) {
-              if (stack[stack.length - 1] > k) {
-                eventStrings[k].str.appendChar('|', 'green');
-                return;
-              } else if (stack[stack.length - 1] === k) {
-                eventStrings[k].str.appendChar('.', 'green');
-                return;
+          const maybeVertical = (color: keyof Chalk) => {
+            if (stack.length > 0) {
+              if (event.uid > k) {
+                if (stack[stack.length - 1] < k) {
+                  eventStrings[k].str.appendChar('|', color);
+                  return true;
+                } else if (stack[stack.length - 1] === k) {
+                  eventStrings[k].str.appendChar('.', color);
+                  return true;
+                }
+              } else if (event.uid < k) {
+                if (stack[stack.length - 1] > k) {
+                  eventStrings[k].str.appendChar('|', color);
+                  return true;
+                } else if (stack[stack.length - 1] === k) {
+                  eventStrings[k].str.appendChar('.', color);
+                  return true;
+                }
               }
             }
+            return false;
+          };
+          if (event.type === 'internal' && maybeVertical('yellow')) {
+            return;
+          } else if (event.type === 'init' && maybeVertical('green')) {
+            return;
           }
           if (stack.indexOf(k) !== -1) {
             eventStrings[k].str.appendChar('.', 'blue');
