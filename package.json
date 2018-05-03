@@ -26,6 +26,7 @@
     "left-pad": "^1.2.0"
   },
   "devDependencies": {
-    "@types/node": "^9.6.5"
+    "@types/node": "^9.6.5",
+    "typescript": "^2.8.3"
   }
 }

@@ -11,15 +11,12 @@ export type Serializable<T> = {
                   T[P] extends {} ? Serializable<T[P]> : string;
 }
 
-export type Flexible<T> = Partial<T & Serializable<T>>;
+export type Flexible<T> = Partial<T | Serializable<T>>;
 
-export interface CnysaOptions {
+export interface CnysaAsyncSnapshotOptions {
   width: number;
   ignoreTypes: RegExp;
-  highlightTypes: RegExp;
-  ignoreUnhighlighted: boolean;
   padding: number;
-  colors: IterableIterator<keyof Chalk>;
   format: string;
 }
 
@@ -92,49 +89,19 @@ class StringRowsBuilder {
 }
 
 export class Cnysa {
-  private width: number;
-  private ignoreTypes: RegExp;
-  private highlightTypes: RegExp;
-  private ignoreUnhighlighted: boolean;
-  private padding: number;
-  private colors: IterableIterator<keyof Chalk>;
-  private format: string;
-
-  private resources: { [key: number]: { tid?: number, uid: number, type: string, color?: keyof Chalk } };
+  private resources: { [key: number]: { tid?: number, uid: number, type: string } };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
   private globalContinuationEnded = false;
 
-  public static DEFAULTS: CnysaOptions = {
+  public static ASYNC_SNAPSHOT_DEFAULTS: CnysaAsyncSnapshotOptions = {
     width: process.stdout.columns || 80,
     ignoreTypes: / /,
-    highlightTypes: / /,
-    ignoreUnhighlighted: false,
     padding: 1,
-    colors: (function* () {
-      const colors = ['bgMagenta', 'bgYellow', 'bgCyan'] as Array<keyof Chalk>;
-      while (true) {
-        for (const color of colors) {
-          yield color;
-        }
-      }
-    })(),
     format: 'default'
   };
 
-  constructor(options: Flexible<CnysaOptions> = {}) {
-    // Initialize options.
-    const canonicalOpts: CnysaOptions = Object.assign({}, Cnysa.DEFAULTS, options);
-    this.width = canonicalOpts.width;
-    this.ignoreTypes = typeof canonicalOpts.ignoreTypes === 'string' ?
-      new RegExp(canonicalOpts.ignoreTypes) : canonicalOpts.ignoreTypes;
-    this.highlightTypes = typeof canonicalOpts.highlightTypes === 'string' ?
-      new RegExp(canonicalOpts.highlightTypes) : canonicalOpts.highlightTypes;
-    this.ignoreUnhighlighted = canonicalOpts.ignoreUnhighlighted;
-    this.padding = canonicalOpts.padding;
-    this.colors = canonicalOpts.colors;
-    this.format = canonicalOpts.format;
-
+  constructor() {
     this.resources = {
       1: { uid: 1, type: '(initial)' }
     };
@@ -146,18 +113,15 @@ export class Cnysa {
 
     this.hook = ah.createHook({
       init: (uid, type, triggerId) => {
-        if (!type.match(this.ignoreTypes)) {
-          const eid = ah.executionAsyncId();
-          const color = (this.resources[eid] && this.resources[eid].color) || (type.match(this.highlightTypes) ? this.colors.next().value : undefined);
-          this.resources[uid] = { uid, type, color };
-          if (triggerId !== eid) {
-            this.resources[uid].tid = triggerId;
-          }
-          this.events.push({ timestamp: Date.now(), uid, type: 'init' });
+        const eid = ah.executionAsyncId();
+        this.resources[uid] = { uid, type };
+        if (triggerId !== eid) {
+          this.resources[uid].tid = triggerId;
         }
+        this.events.push({ timestamp: Date.now(), uid, type: 'init' });
       },
       before: (uid) => {
-        if (this.resources[uid] && !this.resources[uid].type.match(this.ignoreTypes)) {
+        if (this.resources[uid]) {
           if (!this.globalContinuationEnded) {
             this.globalContinuationEnded = true;
             this.events.push({
@@ -170,12 +134,12 @@ export class Cnysa {
         }
       },
       after: (uid) => {
-        if (this.resources[uid] && !this.resources[uid].type.match(this.ignoreTypes)) {
+        if (this.resources[uid]) {
           this.events.push({ timestamp: Date.now(), uid, type: 'after' });
         }
       },
       destroy: (uid) => {
-        if (this.resources[uid] && !this.resources[uid].type.match(this.ignoreTypes)) {
+        if (this.resources[uid]) {
           this.events.push({ timestamp: Date.now(), uid, type: 'destroy' });
         }
       },
@@ -193,7 +157,20 @@ export class Cnysa {
     this.hook.disable();
   }
 
-  getAsyncSnapshot(): string {
+  private canonicalizeAsyncSnapshotOptions(options: Flexible<CnysaAsyncSnapshotOptions> = {}): CnysaAsyncSnapshotOptions {
+    const opts: CnysaAsyncSnapshotOptions | Serializable<CnysaAsyncSnapshotOptions> = Object.assign({}, Cnysa.ASYNC_SNAPSHOT_DEFAULTS, options);
+    opts.width = opts.width;
+    opts.ignoreTypes = typeof opts.ignoreTypes === 'string' ?
+      new RegExp(opts.ignoreTypes) : opts.ignoreTypes;
+    opts.padding = opts.padding;
+    opts.format = opts.format;
+    return opts as CnysaAsyncSnapshotOptions;
+  }
+
+  getAsyncSnapshot(options: Flexible<CnysaAsyncSnapshotOptions> = {}): string {
+    // Initialize options.
+    const config = this.canonicalizeAsyncSnapshotOptions(options);
+
     if (!this.globalContinuationEnded) {
       this.globalContinuationEnded = true;
       this.events.push({
@@ -204,6 +181,9 @@ export class Cnysa {
     }
     const maxLength = Object.keys(this.resources).reduce((acc, key) => {
       const k = Number(key);
+      if (this.resources[k].type.match(config.ignoreTypes)) {
+        return acc;
+      }
       const tidLength = this.resources[k].tid !== undefined ? (this.resources[k].uid.toString().length + 3) : 0;
       const uidLength = this.resources[k].uid.toString().length + 1;
       const typeLength = this.resources[k].type.length + 1;
@@ -212,14 +192,14 @@ export class Cnysa {
     const stack: any[] = [];
     const paddedEvents = [];
     for (const event of this.events) {
-      if (event.uid === 1 || !this.ignoreUnhighlighted || this.resources[event.uid].color) {
+      if (event.uid === 1 || !this.resources[event.uid].type.match(config.ignoreTypes)) {
         paddedEvents.push(event);
-        for (let i = 0; i < this.padding; i++) {
+        for (let i = 0; i < config.padding; i++) {
           paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
         }
       }
     }
-    const adjustedWidth = this.width - maxLength;
+    const adjustedWidth = config.width - maxLength;
     const eventStrings: { [k: number]: { alive: boolean, str: StringRowsBuilder } } = {};
     for (const event of paddedEvents) {
       Object.keys(this.resources).forEach(key => {
@@ -229,48 +209,48 @@ export class Cnysa {
         }
         if (event.uid === k) {
           if (event.type === 'init') {
-            eventStrings[k].str.appendChar('*', 'green', this.resources[k].color);
+            eventStrings[k].str.appendChar('*', 'green');
             eventStrings[k].alive = true;
           } else if (event.type === 'before') {
-            eventStrings[k].str.appendChar('{', 'blue', this.resources[k].color);
+            eventStrings[k].str.appendChar('{', 'blue');
             stack.push(k);
           } else if (event.type === 'after') {
-            eventStrings[k].str.appendChar('}', 'blue', this.resources[k].color);
+            eventStrings[k].str.appendChar('}', 'blue');
             stack.pop();
           } else if (event.type === 'destroy') {
-            eventStrings[k].str.appendChar('*', 'red', this.resources[k].color);
+            eventStrings[k].str.appendChar('*', 'red');
             eventStrings[k].alive = false;
           } else if (event.type === 'promiseResolve') {
-            eventStrings[k].str.appendChar('*', 'gray', this.resources[k].color);
+            eventStrings[k].str.appendChar('*', 'gray');
             eventStrings[k].alive = false;
           } else {
-            eventStrings[k].str.appendChar('?', 'gray', this.resources[k].color);
+            eventStrings[k].str.appendChar('?', 'gray');
           }
         } else {
           if (event.type === 'init' && stack.length > 0) {
             if (event.uid > k) {
               if (stack[stack.length - 1] < k) {
-                eventStrings[k].str.appendChar('|', 'green', this.resources[event.uid].color);
+                eventStrings[k].str.appendChar('|', 'green');
                 return;
               } else if (stack[stack.length - 1] === k) {
-                eventStrings[k].str.appendChar('.', 'green', this.resources[event.uid].color);
+                eventStrings[k].str.appendChar('.', 'green');
                 return;
               }
             } else if (event.uid < k) {
               if (stack[stack.length - 1] > k) {
-                eventStrings[k].str.appendChar('|', 'green', this.resources[k].color);
+                eventStrings[k].str.appendChar('|', 'green');
                 return;
               } else if (stack[stack.length - 1] === k) {
-                eventStrings[k].str.appendChar('.', 'green', this.resources[k].color);
+                eventStrings[k].str.appendChar('.', 'green');
                 return;
               }
             }
           }
           if (stack.indexOf(k) !== -1) {
-            eventStrings[k].str.appendChar('.', 'blue', this.resources[k].color);
+            eventStrings[k].str.appendChar('.', 'blue');
           } else {
             if (eventStrings[k].alive) {
-              eventStrings[k].str.appendChar('-', 'gray', this.resources[k].color);
+              eventStrings[k].str.appendChar('-', 'gray');
             } else {
               eventStrings[k].str.appendChar(' ');
             }
@@ -278,7 +258,7 @@ export class Cnysa {
         }
       });
     }
-    const separator = new Array(this.width).fill(':').join('');
+    const separator = new Array(config.width).fill(':').join('');
     const output = [
       separator,
       ...interleave(Object.keys(this.resources).map(key => {
@@ -297,7 +277,8 @@ export class Cnysa {
       }), separator).filter(line => line.length > 0),
       separator
     ].join('\n');
-    if (this.format === 'svg') {
+    const format = options && options.format ? options.format : config.format;
+    if (format === 'svg') {
       const ansiToSvg = require('ansi-to-svg');
       return ansiToSvg(output);
     } else {
