@@ -16,6 +16,7 @@ export type Flexible<T> = Partial<T | Serializable<T>>;
 export interface CnysaAsyncSnapshotOptions {
   width: number;
   ignoreTypes: RegExp;
+  roots: number[];
   padding: number;
   format: string;
 }
@@ -88,8 +89,16 @@ class StringRowsBuilder {
   }
 }
 
+type CnysaResource = {
+  tid?: number,
+  uid: number,
+  type: string,
+  parents: number[]
+};
+
 export class Cnysa {
-  private resources: { [key: number]: { tid?: number, uid: number, type: string } };
+  private currentScopes: number[];
+  private resources: { [key: number]: CnysaResource };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
   private globalContinuationEnded = false;
@@ -97,14 +106,16 @@ export class Cnysa {
   public static ASYNC_SNAPSHOT_DEFAULTS: CnysaAsyncSnapshotOptions = {
     width: process.stdout.columns || 80,
     ignoreTypes: / /,
+    roots: [],
     padding: 1,
     format: 'default'
   };
 
   constructor() {
     this.resources = {
-      1: { uid: 1, type: '(initial)' }
+      1: { uid: 1, type: '(initial)', parents: [] }
     };
+    this.currentScopes = [1];
     this.events = [{
       timestamp: Date.now(),
       uid: 1,
@@ -114,7 +125,8 @@ export class Cnysa {
     this.hook = ah.createHook({
       init: (uid, type, triggerId) => {
         const eid = ah.executionAsyncId();
-        this.resources[uid] = { uid, type };
+        
+        this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x) };
         if (triggerId !== eid) {
           this.resources[uid].tid = triggerId;
         }
@@ -129,13 +141,16 @@ export class Cnysa {
               uid: 1,
               type: 'after'
             });
+            this.currentScopes.pop();
           }
           this.events.push({ timestamp: Date.now(), uid, type: 'before' });
+          this.currentScopes.push(uid);
         }
       },
       after: (uid) => {
         if (this.resources[uid]) {
           this.events.push({ timestamp: Date.now(), uid, type: 'after' });
+          this.currentScopes.pop();
         }
       },
       destroy: (uid) => {
@@ -157,13 +172,23 @@ export class Cnysa {
     this.hook.disable();
   }
 
+  private hasAncestor(resource: CnysaResource, ancestor: RegExp|number[]): boolean {
+    if (Array.isArray(ancestor) && ancestor.length === 0) {
+      return true;
+    }
+    let predicate: (res: CnysaResource) => boolean;
+    if (ancestor instanceof RegExp) {
+      predicate = res => !!res.type.match(ancestor) || res.parents.some(parent => predicate(this.resources[parent]));
+    } else {
+      predicate = res => ancestor.indexOf(res.uid) !== -1 || res.parents.some(parent => predicate(this.resources[parent]));
+    }
+    return predicate(resource);
+  }
+
   private canonicalizeAsyncSnapshotOptions(options: Flexible<CnysaAsyncSnapshotOptions> = {}): CnysaAsyncSnapshotOptions {
     const opts: CnysaAsyncSnapshotOptions | Serializable<CnysaAsyncSnapshotOptions> = Object.assign({}, Cnysa.ASYNC_SNAPSHOT_DEFAULTS, options);
-    opts.width = opts.width;
     opts.ignoreTypes = typeof opts.ignoreTypes === 'string' ?
       new RegExp(opts.ignoreTypes) : opts.ignoreTypes;
-    opts.padding = opts.padding;
-    opts.format = opts.format;
     return opts as CnysaAsyncSnapshotOptions;
   }
 
@@ -179,9 +204,13 @@ export class Cnysa {
         type: 'after'
       });
     }
+    const ignoredResources = Object.keys(this.resources).filter(key => {
+      const k = Number(key);
+      return this.resources[k].type.match(config.ignoreTypes) || !this.hasAncestor(this.resources[k], config.roots);
+    }).reduce((acc: Set<number>, key) => acc.add(Number(key)), new Set());
     const maxLength = Object.keys(this.resources).reduce((acc, key) => {
       const k = Number(key);
-      if (this.resources[k].type.match(config.ignoreTypes)) {
+      if (ignoredResources.has(k)) {
         return acc;
       }
       const tidLength = this.resources[k].tid !== undefined ? (this.resources[k].uid.toString().length + 3) : 0;
@@ -192,7 +221,7 @@ export class Cnysa {
     const stack: any[] = [];
     const paddedEvents = [];
     for (const event of this.events) {
-      if (event.uid === 1 || !this.resources[event.uid].type.match(config.ignoreTypes)) {
+      if (!ignoredResources.has(event.uid)) {
         paddedEvents.push(event);
         for (let i = 0; i < config.padding; i++) {
           paddedEvents.push({ uid: -1, timestamp: 0, type: 'pad' });
