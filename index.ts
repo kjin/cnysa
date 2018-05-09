@@ -13,11 +13,33 @@ export type Serializable<T> = {
 
 export type Flexible<T> = Partial<T | Serializable<T>>;
 
+/**
+ * Options for formatting the result of calling Cnysa#getAsyncSnapshot.
+ */
 export interface CnysaAsyncSnapshotOptions {
+  /**
+   * The maximum number of characters to print on a single line before wrapping.
+   * Defaults to the current terminal width.
+   */
   width: number;
+  /**
+   * A RegExp to filter out `AsyncResource` types.
+   */
   ignoreTypes: RegExp;
+  /**
+   * A list of `AsyncResource` IDs that must be an ancestor of a given
+   * `AsyncResource` for it to be displayed. The default value, an empty list,
+   * is equivalent to specifying no constraint on ancestry.
+   */
   roots: number[];
+  /**
+   * A number that represents the amount of space between each depicted event.
+   */
   padding: number;
+  /**
+   * A string that represents how the output should be formatted. Currently,
+   * the available options are `'default'` and `'svg'`.
+   */
   format: string;
 }
 
@@ -97,6 +119,10 @@ type CnysaResource = {
   parents: number[]
 };
 
+/**
+ * A class that collects AsyncResource lifecycle events for visualization
+ * purposes.
+ */
 export class Cnysa {
   private static markHighWater = 0;
   private static activeInstances: Cnysa[] = [];
@@ -107,6 +133,9 @@ export class Cnysa {
   private hook: ah.AsyncHook;
   private globalContinuationEnded = false;
 
+  /**
+   * Default options for getAsyncSnapshot.
+   */
   public static ASYNC_SNAPSHOT_DEFAULTS: CnysaAsyncSnapshotOptions = {
     width: process.stdout.columns || 80,
     ignoreTypes: / /,
@@ -115,6 +144,13 @@ export class Cnysa {
     format: 'default'
   };
 
+  /**
+   * Gets the most recently constructed `Cnysa` instance. If none were
+   * constructed, one is constructed automatically and returned. Therefore,
+   * this method is guaranteed to return a `Cnysa` instance.
+   * This is useful when it is unknown whether `cnysa` has been used earlier in
+   * the application, especially as a command-line require.
+   */
   public static get(): Cnysa {
     if (Cnysa.activeInstances.length === 0) {
       Cnysa.activeInstances.push(new Cnysa());
@@ -122,6 +158,9 @@ export class Cnysa {
     return Cnysa.activeInstances[Cnysa.activeInstances.length - 1];
   }
 
+  /**
+   * Constructs a new `Cnysa` instance.
+   */
   constructor() {
     this.resources = {
       1: { uid: 1, type: '(initial)', parents: [], internal: false }
@@ -182,10 +221,16 @@ export class Cnysa {
     Cnysa.activeInstances.push(this);
   }
 
+  /**
+   * Starts recording async events.
+   */
   enable() {
     this.hook.enable();
   }
 
+  /**
+   * Stops recording async events.
+   */
   disable() {
     this.hook.disable();
   }
@@ -210,6 +255,12 @@ export class Cnysa {
     return opts as CnysaAsyncSnapshotOptions;
   }
 
+  /**
+   * Generate a special `AsyncResource` with the given tag. If `tag` is not
+   * specified, a monotonically increasing number is assigned to it.
+   * The special `AsyncResource` will be displayed as a single event.
+   * @param tag The tag to uniquely identify this mark.
+   */
   mark(tag?: string|number): void {
     if (tag === undefined) {
       tag = Cnysa.markHighWater++;
@@ -217,6 +268,11 @@ export class Cnysa {
     new ah.AsyncResource(`cnysa(${tag})`).emitDestroy();
   }
 
+  /**
+   * Returns a formatted `AsyncResource` ancestry tree from the events
+   * collected so far.
+   * @param options Options for how the ancestry tree should be displayed.
+   */
   getAsyncSnapshot(options: Flexible<CnysaAsyncSnapshotOptions> = {}): string {
     // Initialize options.
     const config = this.canonicalizeAsyncSnapshotOptions(options);
