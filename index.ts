@@ -98,6 +98,7 @@ type CnysaResource = {
 };
 
 export class Cnysa {
+  private static markHighWater = 0;
   private static activeInstances: Cnysa[] = [];
 
   private currentScopes: number[];
@@ -209,8 +210,11 @@ export class Cnysa {
     return opts as CnysaAsyncSnapshotOptions;
   }
 
-  mark(name: string|number): void {
-    new ah.AsyncResource(`cnysa(${name})`).emitDestroy();
+  mark(tag?: string|number): void {
+    if (tag === undefined) {
+      tag = Cnysa.markHighWater++;
+    }
+    new ah.AsyncResource(`cnysa(${tag})`).emitDestroy();
   }
 
   getAsyncSnapshot(options: Flexible<CnysaAsyncSnapshotOptions> = {}): string {
@@ -274,7 +278,7 @@ export class Cnysa {
             eventStrings[k].str.appendChar('*', 'gray');
             eventStrings[k].alive = false;
           } else if (event.type === 'internal') {
-            eventStrings[k].str.appendChar('*', 'yellow');
+            eventStrings[k].str.appendChar('*', 'cyan');
           } else {
             eventStrings[k].str.appendChar('?', 'gray');
           }
@@ -301,7 +305,7 @@ export class Cnysa {
             }
             return false;
           };
-          if (event.type === 'internal' && maybeVertical('yellow')) {
+          if (event.type === 'internal' && maybeVertical('cyan')) {
             return;
           } else if (event.type === 'init' && maybeVertical('green')) {
             return;
@@ -327,14 +331,17 @@ export class Cnysa {
           if (!rhs.dirty) {
             return '';
           } else {
+            const typeColor: keyof Chalk = this.resources[k].internal ? 'cyan' : 'yellow';
             if (this.resources[k].tid !== undefined) {
-              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} (${chalk.green(`${this.resources[k].tid!}`)}) ${chalk.yellow(this.resources[k].type)} `, maxLength + (chalk.magenta(' ').length - 1) * 3) + rhs.str;
+              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} (${chalk.green(`${this.resources[k].tid!}`)}) ${chalk[typeColor](this.resources[k].type)} `, maxLength + (chalk.red(' ').length - 1) * 3) + rhs.str;
             } else {
-              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} ${chalk.yellow(this.resources[k].type)} `, maxLength + (chalk.magenta(' ').length - 1) * 2) + rhs.str;
+              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} ${chalk[typeColor](this.resources[k].type)} `, maxLength + (chalk.red(' ').length - 1) * 2) + rhs.str;
             }
           }
         });
-      }), separator).filter(line => line.length > 0),
+      }), separator)
+        // .map((line, idx) => idx % 2 === 0 ? chalk.bgBlackBright(line) : chalk.bgBlack(line))
+        .filter(line => line.length > 0),
       separator
     ].join('\n');
     const format = options && options.format ? options.format : config.format;
