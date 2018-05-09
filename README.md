@@ -1,7 +1,5 @@
 `cnysa` (unpronouncible) is a module that allows you to see information about what the `async_hooks` module is doing under the covers. `AsyncResources` and their lifecycle events are displayed neatly in rows (see bottom for examples).
 
-__Note: This module currently uses the `colors` module.__
-
 # Pre-Require Hook
 
 Pre-require `cynsa/register` in your application:
@@ -67,9 +65,9 @@ For each `AsyncResource`, a timeline will be printed, with a number of colored s
 ## Examples
 
 ```bash
-node --require ./register -e "                     \
+node --require cnysa/register -e "                 \
   fs.readFile('package.json', (err, contents) => { \
-    require('.').Cnysa.get().mark('hi');           \
+    require('cnysa').Cnysa.get().mark('hi');       \
   })"
 ```
 
