@@ -81,6 +81,7 @@ const until = <T>(array: T[], predicate: (input: T) => boolean): T[] => {
 
 interface StringData {
   str: string;
+  length: number;
   dirty: boolean;
 }
 
@@ -96,10 +97,11 @@ class StringRowsBuilder {
   // treats as if one char
   appendChar(char: string, ...styles: Array<keyof Chalk|undefined>) {
     if (this.currentLength === 0) {
-      this.data.push({ str: '', dirty: false });
+      this.data.push({ str: '', length: 0, dirty: false });
     }
     const top = this.data[this.data.length - 1];
     top.str += styles.reduce((acc, next) => next ? (chalk[next] as typeof chalk)(acc) : acc, char);
+    top.length++;
     top.dirty = top.dirty || !(char === ' ' || char === '|');
     if (++this.currentLength === this.maxLength) {
       this.currentLength = 0;
@@ -132,6 +134,7 @@ export class Cnysa {
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
   private globalContinuationEnded = false;
+  private ignoreResources = 0;
 
   /**
    * Default options for getAsyncSnapshot.
@@ -175,6 +178,10 @@ export class Cnysa {
     this.hook = ah.createHook({
       init: (uid, type, triggerId) => {
         const eid = ah.executionAsyncId();
+        if (this.ignoreResources) {
+          this.ignoreResources--;
+          return;
+        }
         
         if (type.startsWith('cnysa')) {
           this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x), internal: true };
@@ -256,6 +263,17 @@ export class Cnysa {
   }
 
   /**
+   * Ignores the next resource. If a number N is provided, ignore the next N
+   * resources.
+   */
+  ignoreNext(numResources?: number): void {
+    if (numResources === undefined) {
+      numResources = 1;
+    }
+    this.ignoreResources = numResources;
+  }
+
+  /**
    * Generate a special `AsyncResource` with the given tag. If `tag` is not
    * specified, a monotonically increasing number is assigned to it.
    * The special `AsyncResource` will be displayed as a single event.
@@ -289,7 +307,7 @@ export class Cnysa {
       const k = Number(key);
       return this.resources[k].type.match(config.ignoreTypes) || !this.hasAncestor(this.resources[k], config.roots);
     }).reduce((acc: Set<number>, key) => acc.add(Number(key)), new Set());
-    const maxLength = Object.keys(this.resources).reduce((acc, key) => {
+    const rowHeaderLength = Object.keys(this.resources).reduce((acc, key) => {
       const k = Number(key);
       if (ignoredResources.has(k)) {
         return acc;
@@ -309,7 +327,7 @@ export class Cnysa {
         }
       }
     }
-    const adjustedWidth = config.width - maxLength;
+    const adjustedWidth = config.width - rowHeaderLength;
     const eventStrings: { [k: number]: { alive: boolean, str: StringRowsBuilder } } = {};
     for (const event of paddedEvents) {
       Object.keys(this.resources).forEach(key => {
@@ -378,25 +396,32 @@ export class Cnysa {
         }
       });
     }
-    const separator = new Array(config.width).fill(':').join('');
+    const max = (a: number, b: number) => Math.max(a, b);
+    const separator = new Array(Object.keys(this.resources)
+      .map(key => rowHeaderLength + eventStrings[Number(key)].str.getData()
+        .map(l => l.length)
+        .reduce(max, 0))
+      .reduce(max, 0))
+      .fill(':')
+      .join('');
+    const dataLines = Object.keys(this.resources).map(key => {
+      const k = Number(key);
+      return eventStrings[k].str.getData().map(rhs => {
+        if (!rhs.dirty) {
+          return '';
+        } else {
+          const typeColor: keyof Chalk = this.resources[k].internal ? 'cyan' : 'yellow';
+          if (this.resources[k].tid !== undefined) {
+            return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} (${chalk.green(`${this.resources[k].tid!}`)}) ${chalk[typeColor](this.resources[k].type)} `, rowHeaderLength + (chalk.red(' ').length - 1) * 3) + rhs.str;
+          } else {
+            return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} ${chalk[typeColor](this.resources[k].type)} `, rowHeaderLength + (chalk.red(' ').length - 1) * 2) + rhs.str;
+          }
+        }
+      });
+    });
     const output = [
       separator,
-      ...interleave(Object.keys(this.resources).map(key => {
-        const k = Number(key);
-        return eventStrings[k].str.getData().map(rhs => {
-          if (!rhs.dirty) {
-            return '';
-          } else {
-            const typeColor: keyof Chalk = this.resources[k].internal ? 'cyan' : 'yellow';
-            if (this.resources[k].tid !== undefined) {
-              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} (${chalk.green(`${this.resources[k].tid!}`)}) ${chalk[typeColor](this.resources[k].type)} `, maxLength + (chalk.red(' ').length - 1) * 3) + rhs.str;
-            } else {
-              return leftPad(`${chalk.magenta(`${this.resources[k].uid}`)} ${chalk[typeColor](this.resources[k].type)} `, maxLength + (chalk.red(' ').length - 1) * 2) + rhs.str;
-            }
-          }
-        });
-      }), separator)
-        // .map((line, idx) => idx % 2 === 0 ? chalk.bgBlackBright(line) : chalk.bgBlack(line))
+      ...interleave(dataLines, separator)
         .filter(line => line.length > 0),
       separator
     ].join('\n');
