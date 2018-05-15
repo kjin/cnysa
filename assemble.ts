@@ -1,3 +1,7 @@
+/// <reference path="./types.d.ts" />
+
+import * as stringLength from 'string-length';
+
 export function assemble(args: string[][][]): string {
   const columnWidths: number[] = [];
   const rowHeights: number[] = [];
@@ -7,7 +11,7 @@ export function assemble(args: string[][][]): string {
       if (columnWidths.length === x) {
         columnWidths.push(0);
       }
-      const longestEntry = args[y][x].reduce((acc, line) => Math.max(acc, line.length), 0);
+      const longestEntry = args[y][x].reduce((acc, line) => Math.max(acc, stringLength(line)), 0);
       if (columnWidths[x] < longestEntry) {
         columnWidths[x] = longestEntry;
       }
@@ -19,7 +23,7 @@ export function assemble(args: string[][][]): string {
   for (let y = 0; y < args.length; y++) {
     for (let l = 0; l < rowHeights[y]; l++) {
       for (let x = 0; x < args[y].length; x++) {
-        result += (args[y][x][l] || '') + ' '.repeat(columnWidths[x] - (args[y][x][l] || '').length) + ' ';
+        result += (args[y][x][l] || '') + ' '.repeat(columnWidths[x] - stringLength(args[y][x][l] || '')) + ' ';
       }
       result = result.trim() + '\n';
     }

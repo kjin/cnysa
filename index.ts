@@ -18,7 +18,7 @@ export type Flexible<T> = Partial<T | Serializable<T>>;
 /**
  * Options for formatting the result of calling Cnysa#getAsyncSnapshot.
  */
-export interface CnysaAsyncSnapshotOptions {
+export interface CnysaSnapshotOptions {
   /**
    * The maximum number of characters to print on a single line before wrapping.
    * Defaults to the current terminal width.
@@ -44,6 +44,15 @@ export interface CnysaAsyncSnapshotOptions {
    */
   format: string;
 }
+
+export interface CnysaStackTraceOptions {
+  /**
+   * A RegExp to filter out `AsyncResource` types.
+   */
+  ignoreTypes: RegExp;
+}
+
+export type CnysaOptions = CnysaSnapshotOptions & CnysaStackTraceOptions;
 
 const isRemovableLine = (str: string) => {
   while (str = str.trim()) {
@@ -115,6 +124,10 @@ class StringRowsBuilder {
   }
 }
 
+function top<T>(array: Array<T>): T {
+  return array[array.length - 1];
+}
+
 type CnysaResource = {
   tid?: number,
   uid: number,
@@ -138,11 +151,19 @@ export class Cnysa {
   private hook: ah.AsyncHook;
   private globalContinuationEnded = false;
   private ignoreResources = 0;
+  private globalOptions: Flexible<CnysaOptions>;
+
+  /**
+   * Default options for createStackTrace.
+   */
+  public static STACK_TRACE_DEFAULTS: CnysaStackTraceOptions = {
+    ignoreTypes: / /
+  };
 
   /**
    * Default options for getAsyncSnapshot.
    */
-  public static ASYNC_SNAPSHOT_DEFAULTS: CnysaAsyncSnapshotOptions = {
+  public static SNAPSHOT_DEFAULTS: CnysaSnapshotOptions = {
     width: process.stdout.columns || 80,
     ignoreTypes: / /,
     roots: [],
@@ -167,7 +188,8 @@ export class Cnysa {
   /**
    * Constructs a new `Cnysa` instance.
    */
-  constructor() {
+  constructor(options: Flexible<CnysaOptions> = {}) {
+    this.globalOptions = options;
     this.resources = {
       1: { uid: 1, type: '(initial)', parents: [], internal: false, stack: [] }
     };
@@ -259,11 +281,18 @@ export class Cnysa {
     return predicate(resource);
   }
 
-  private canonicalizeAsyncSnapshotOptions(options: Flexible<CnysaAsyncSnapshotOptions> = {}): CnysaAsyncSnapshotOptions {
-    const opts: CnysaAsyncSnapshotOptions | Serializable<CnysaAsyncSnapshotOptions> = Object.assign({}, Cnysa.ASYNC_SNAPSHOT_DEFAULTS, options);
+  private canonicalizeStackTraceOptions(options: Flexible<CnysaStackTraceOptions> = {}): CnysaStackTraceOptions {
+    const opts: CnysaStackTraceOptions | Serializable<CnysaStackTraceOptions> = Object.assign({}, Cnysa.STACK_TRACE_DEFAULTS, this.globalOptions, options);
     opts.ignoreTypes = typeof opts.ignoreTypes === 'string' ?
       new RegExp(opts.ignoreTypes) : opts.ignoreTypes;
-    return opts as CnysaAsyncSnapshotOptions;
+    return opts as CnysaStackTraceOptions;
+  }
+
+  private canonicalizeSnapshotOptions(options: Flexible<CnysaSnapshotOptions> = {}): CnysaSnapshotOptions {
+    const opts: CnysaSnapshotOptions | Serializable<CnysaSnapshotOptions> = Object.assign({}, Cnysa.SNAPSHOT_DEFAULTS, this.globalOptions, options);
+    opts.ignoreTypes = typeof opts.ignoreTypes === 'string' ?
+      new RegExp(opts.ignoreTypes) : opts.ignoreTypes;
+    return opts as CnysaSnapshotOptions;
   }
 
   /**
@@ -282,28 +311,50 @@ export class Cnysa {
    * specified, a monotonically increasing number is assigned to it.
    * The special `AsyncResource` will be displayed as a single event.
    * @param tag The tag to uniquely identify this mark.
+   * @returns This object.
    */
-  mark(tag?: string|number): void {
+  mark(tag?: string|number): this {
     if (tag === undefined) {
       tag = Cnysa.markHighWater++;
     }
     new ah.AsyncResource(`cnysa(${tag})`).emitDestroy();
+    return this;
   }
 
-  createAsyncStackTrace(prepare?: (callSite: NodeJS.CallSite) => string): string {
-    if (!prepare) {
-      prepare = c => `${c.getFunctionName() || '(anonymous)'} (${c.getFileName()}:${c.getLineNumber()})`;
-    }
-    const p = (c: NodeJS.CallSite) => prepare!(c);
-    const preassemble = [[['current', ...createStackTrace().slice(2).map(p)]]];
-    let ancestryGraphQueue = this.currentScopes.map(x => x.id);
+  /**
+   * Create an async stack trace that traverses the current continuation's
+   * ancestry graph.
+   * @param options Options for how the async stack trace should be displayed.
+   */
+  createAsyncStackTrace(options: Flexible<CnysaStackTraceOptions> = {}): string {
+    const config = this.canonicalizeStackTraceOptions(options);
+    const prepare = (c: NodeJS.CallSite) => `${chalk.yellow('>')} ${chalk.cyan(c.getFunctionName() || '(anonymous)')} (${c.getFileName()}:${c.getLineNumber()})`;
+    // A string[][][] to format into a grid using the assemble() function.
+    const preassemble = [[[chalk.blue('*'), ...createStackTrace().slice(2).map(prepare)]]];
+    let ancestryGraphQueue = this.currentScopes.map(x => [x.id]);
     while (ancestryGraphQueue.length > 0) {
-      preassemble.push(ancestryGraphQueue.map(scope => this.resources[scope].stack.map(p)));
-      ancestryGraphQueue = ancestryGraphQueue.reduce((acc: number[], scope) => {
-        if (this.resources[scope].parents.length === 0) {
+      // Filter out ignored types.
+      ancestryGraphQueue = ancestryGraphQueue.filter(parents => top(parents) !== 1 && !this.resources[top(parents)].type.match(config.ignoreTypes));
+      // Push stack trace contents to the string to pass to assemble.
+      preassemble.push(
+        ancestryGraphQueue.map(
+          parents => [
+            [
+              chalk.blue('*'),
+              ...parents.map(
+                parent => chalk.green(`${this.resources[parent].uid}`)
+              )
+            ].join('-'),
+            ...this.resources[top(parents)].stack.map(prepare)
+          ]
+        )
+      );
+      // Go back one level in the ancestry graph.
+      ancestryGraphQueue = ancestryGraphQueue.reduce((acc: number[][], parents) => {
+        if (this.resources[top(parents)].parents.length === 0) {
           return acc;
         }
-        return [...acc, ...this.resources[scope].parents];
+        return [...acc, ...this.resources[top(parents)].parents.map(p => [...parents, p])];
       }, []);
     }
     return assemble(preassemble);
@@ -314,9 +365,9 @@ export class Cnysa {
    * collected so far.
    * @param options Options for how the ancestry tree should be displayed.
    */
-  getAsyncSnapshot(options: Flexible<CnysaAsyncSnapshotOptions> = {}): string {
+  getAsyncSnapshot(options: Flexible<CnysaSnapshotOptions> = {}): string {
     // Initialize options.
-    const config = this.canonicalizeAsyncSnapshotOptions(options);
+    const config = this.canonicalizeSnapshotOptions(options);
 
     if (!this.globalContinuationEnded) {
       this.globalContinuationEnded = true;

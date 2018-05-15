@@ -8,9 +8,9 @@ try {
   const configJson = fs.readFileSync(expectedConfigPath, 'utf8');
   config = JSON.parse(configJson);
 } catch (e) {} finally {
-  const cnysa = new Cnysa();
+  const cnysa = new Cnysa(config);
   cnysa.enable();
   process.once('exit', () => {
-    console.log(cnysa.getAsyncSnapshot(config));
+    console.log(cnysa.getAsyncSnapshot());
   });
 }
