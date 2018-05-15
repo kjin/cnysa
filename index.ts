@@ -3,6 +3,8 @@ import chalk, { Chalk } from 'chalk';
 import * as fs from 'fs';
 import leftPad = require('left-pad');
 import { Writable } from 'stream';
+import { createStackTrace } from './stack-trace';
+import { assemble } from './assemble';
 
 export type Serializable<T> = {
   [P in keyof T]: T[P] extends string|number|boolean ? T[P] :
@@ -118,7 +120,8 @@ type CnysaResource = {
   uid: number,
   type: string,
   internal: boolean,
-  parents: number[]
+  parents: number[],
+  stack: NodeJS.CallSite[]
 };
 
 /**
@@ -129,7 +132,7 @@ export class Cnysa {
   private static markHighWater = 0;
   private static activeInstances: Cnysa[] = [];
 
-  private currentScopes: number[];
+  private currentScopes: Array<{ id: number, stack: NodeJS.CallSite[] }>;
   private resources: { [key: number]: CnysaResource };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
@@ -166,9 +169,9 @@ export class Cnysa {
    */
   constructor() {
     this.resources = {
-      1: { uid: 1, type: '(initial)', parents: [], internal: false }
+      1: { uid: 1, type: '(initial)', parents: [], internal: false, stack: [] }
     };
-    this.currentScopes = [1];
+    this.currentScopes = [{ id: 1, stack: [] }];
     this.events = [{
       timestamp: Date.now(),
       uid: 1,
@@ -182,12 +185,13 @@ export class Cnysa {
           this.ignoreResources--;
           return;
         }
+        const stack = createStackTrace().slice(4);
         
         if (type.startsWith('cnysa')) {
-          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x), internal: true };
+          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x.id), stack, internal: true };
           this.events.push({ timestamp: Date.now(), uid, type: 'internal' });
         } else {
-          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x), internal: false };
+          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x.id), stack, internal: false };
           if (triggerId !== eid) {
             this.resources[uid].tid = triggerId;
           }
@@ -206,7 +210,7 @@ export class Cnysa {
             this.currentScopes.pop();
           }
           this.events.push({ timestamp: Date.now(), uid, type: 'before' });
-          this.currentScopes.push(uid);
+          this.currentScopes.push({ id: uid, stack: createStackTrace().slice(4) });
         }
       },
       after: (uid) => {
@@ -284,6 +288,25 @@ export class Cnysa {
       tag = Cnysa.markHighWater++;
     }
     new ah.AsyncResource(`cnysa(${tag})`).emitDestroy();
+  }
+
+  createAsyncStackTrace(prepare?: (callSite: NodeJS.CallSite) => string): string {
+    if (!prepare) {
+      prepare = c => `${c.getFunctionName() || '(anonymous)'} (${c.getFileName()}:${c.getLineNumber()})`;
+    }
+    const p = (c: NodeJS.CallSite) => prepare!(c);
+    const preassemble = [[['current', ...createStackTrace().slice(2).map(p)]]];
+    let ancestryGraphQueue = this.currentScopes.map(x => x.id);
+    while (ancestryGraphQueue.length > 0) {
+      preassemble.push(ancestryGraphQueue.map(scope => this.resources[scope].stack.map(p)));
+      ancestryGraphQueue = ancestryGraphQueue.reduce((acc: number[], scope) => {
+        if (this.resources[scope].parents.length === 0) {
+          return acc;
+        }
+        return [...acc, ...this.resources[scope].parents];
+      }, []);
+    }
+    return assemble(preassemble);
   }
 
   /**
