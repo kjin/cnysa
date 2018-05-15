@@ -11,6 +11,6 @@ try {
   const cnysa = new Cnysa(config);
   cnysa.enable();
   process.once('exit', () => {
-    console.log(cnysa.getAsyncSnapshot());
+    console.log(cnysa.createAsyncSnapshot());
   });
 }

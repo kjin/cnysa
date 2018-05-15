@@ -365,7 +365,7 @@ export class Cnysa {
    * collected so far.
    * @param options Options for how the ancestry tree should be displayed.
    */
-  getAsyncSnapshot(options: Flexible<CnysaSnapshotOptions> = {}): string {
+  createAsyncSnapshot(options: Flexible<CnysaSnapshotOptions> = {}): string {
     // Initialize options.
     const config = this.canonicalizeSnapshotOptions(options);
 
