@@ -138,6 +138,13 @@ type CnysaResource = {
   stack: StackTrace
 };
 
+class CnysaMarkResource extends ah.AsyncResource {
+  constructor(tag: string|number) {
+    super(`(${tag})`);
+    this.emitDestroy();
+  }
+}
+
 /**
  * A class that collects AsyncResource lifecycle events for visualization
  * purposes.
@@ -192,7 +199,7 @@ export class Cnysa {
   constructor(options: Flexible<CnysaOptions> = {}) {
     this.globalOptions = options;
     this.resources = {
-      1: { uid: 1, type: '(initial)', parents: [], stack: [], internal: false, custom: false }
+      1: { uid: 1, type: '(initial)', parents: [], stack: [], internal: true, custom: false }
     };
     this.currentScopes = [{ id: 1, stack: [] }];
     this.events = [{
@@ -210,7 +217,7 @@ export class Cnysa {
         }
         const stack = createStackTrace().slice(4);
         
-        const internal = type.startsWith('cnysa');
+        const internal = resource instanceof CnysaMarkResource;
         const custom = resource instanceof ah.AsyncResource;
         this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x.id), stack, internal, custom };
         if (internal) {
@@ -322,7 +329,7 @@ export class Cnysa {
     if (tag === undefined) {
       tag = Cnysa.markHighWater++;
     }
-    new ah.AsyncResource(`cnysa(${tag})`).emitDestroy();
+    new CnysaMarkResource(tag);
     return this;
   }
 
