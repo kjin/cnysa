@@ -133,6 +133,7 @@ type CnysaResource = {
   uid: number,
   type: string,
   internal: boolean,
+  custom: boolean,
   parents: number[],
   stack: NodeJS.CallSite[]
 };
@@ -191,7 +192,7 @@ export class Cnysa {
   constructor(options: Flexible<CnysaOptions> = {}) {
     this.globalOptions = options;
     this.resources = {
-      1: { uid: 1, type: '(initial)', parents: [], internal: false, stack: [] }
+      1: { uid: 1, type: '(initial)', parents: [], stack: [], internal: false, custom: false }
     };
     this.currentScopes = [{ id: 1, stack: [] }];
     this.events = [{
@@ -201,7 +202,7 @@ export class Cnysa {
     }];
 
     this.hook = ah.createHook({
-      init: (uid, type, triggerId) => {
+      init: (uid, type, triggerId, resource) => {
         const eid = ah.executionAsyncId();
         if (this.ignoreResources) {
           this.ignoreResources--;
@@ -209,11 +210,12 @@ export class Cnysa {
         }
         const stack = createStackTrace().slice(4);
         
-        if (type.startsWith('cnysa')) {
-          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x.id), stack, internal: true };
+        const internal = type.startsWith('cnysa');
+        const custom = resource instanceof ah.AsyncResource;
+        this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x.id), stack, internal, custom };
+        if (internal) {
           this.events.push({ timestamp: Date.now(), uid, type: 'internal' });
         } else {
-          this.resources[uid] = { uid, type, parents: this.currentScopes.map(x => x.id), stack, internal: false };
           if (triggerId !== eid) {
             this.resources[uid].tid = triggerId;
           }
@@ -221,8 +223,9 @@ export class Cnysa {
         }
       },
       before: (uid) => {
-        if (this.resources[uid] && !this.resources[uid].internal) {
-          if (!this.globalContinuationEnded) {
+        const r = this.resources[uid];
+        if (r && !r.internal) {
+          if (!this.globalContinuationEnded && !r.custom) {
             this.globalContinuationEnded = true;
             this.events.push({
               timestamp: Date.now(),
@@ -236,13 +239,15 @@ export class Cnysa {
         }
       },
       after: (uid) => {
-        if (this.resources[uid] && !this.resources[uid].internal) {
+        const r = this.resources[uid];
+        if (r && !r.internal) {
           this.events.push({ timestamp: Date.now(), uid, type: 'after' });
           this.currentScopes.pop();
         }
       },
       destroy: (uid) => {
-        if (this.resources[uid] && !this.resources[uid].internal) {
+        const r = this.resources[uid];
+        if (r && !r.internal) {
           this.events.push({ timestamp: Date.now(), uid, type: 'destroy' });
         }
       },
