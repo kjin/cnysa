@@ -3,7 +3,7 @@ import chalk, { Chalk } from 'chalk';
 import * as fs from 'fs';
 import leftPad = require('left-pad');
 import { Writable } from 'stream';
-import { createStackTrace } from './stack-trace';
+import { createStackTrace, StackTrace } from './stack-trace';
 import { assemble } from './assemble';
 
 export type Serializable<T> = {
@@ -135,7 +135,7 @@ type CnysaResource = {
   internal: boolean,
   custom: boolean,
   parents: number[],
-  stack: NodeJS.CallSite[]
+  stack: StackTrace
 };
 
 /**
@@ -146,7 +146,7 @@ export class Cnysa {
   private static markHighWater = 0;
   private static activeInstances: Cnysa[] = [];
 
-  private currentScopes: Array<{ id: number, stack: NodeJS.CallSite[] }>;
+  private currentScopes: Array<{ id: number, stack: StackTrace }>;
   private resources: { [key: number]: CnysaResource };
   private events: Array<{ timestamp: number, uid: number, type: string }>;
   private hook: ah.AsyncHook;
@@ -333,10 +333,11 @@ export class Cnysa {
    */
   createAsyncStackTrace(options: Flexible<CnysaStackTraceOptions> = {}): string {
     const config = this.canonicalizeStackTraceOptions(options);
-    const prepare = (c: NodeJS.CallSite) => `${chalk.yellow('>')} ${chalk.cyan(c.getFunctionName() || '(anonymous)')} (${c.getFileName()}:${c.getLineNumber()})`;
+    const prepare = (c: NodeJS.CallSite, lead: string = '>') => `${lead} ${chalk.cyan(c.getFunctionName() || '(anonymous)')} (${c.getFileName()}:${c.getLineNumber()})`;
+    const prepareNoLead = (c: NodeJS.CallSite) => prepare(c);
     // A string[][][] to format into a grid using the assemble() function.
-    const preassemble = [[[chalk.blue('*'), ...createStackTrace().slice(2).map(prepare)]]];
-    let ancestryGraphQueue = this.currentScopes.map(x => [x.id]);
+    const preassemble = [[[chalk.cyan('*'), ...createStackTrace().slice(2).map(prepareNoLead)]]];
+    let ancestryGraphQueue = this.currentScopes.map(x => [x.id]).reverse();
     while (ancestryGraphQueue.length > 0) {
       // Filter out ignored types.
       ancestryGraphQueue = ancestryGraphQueue.filter(parents => top(parents) !== 1 && !this.resources[top(parents)].type.match(config.ignoreTypes));
@@ -344,13 +345,14 @@ export class Cnysa {
       preassemble.push(
         ancestryGraphQueue.map(
           parents => [
-            [
-              chalk.blue('*'),
-              ...parents.map(
+            `${[
+              chalk.cyan('*'),
+              ...parents.slice(0, parents.length - 1).map(
                 parent => chalk.green(`${this.resources[parent].uid}`)
-              )
-            ].join('-'),
-            ...this.resources[top(parents)].stack.map(prepare)
+              ),
+              chalk.magenta(`${this.resources[top(parents)].uid}`)
+            ].join('-')} ${chalk.yellow(this.resources[top(parents)].type)}`,
+            ...this.resources[top(parents)].stack.map(prepareNoLead)
           ]
         )
       );
@@ -359,7 +361,7 @@ export class Cnysa {
         if (this.resources[top(parents)].parents.length === 0) {
           return acc;
         }
-        return [...acc, ...this.resources[top(parents)].parents.map(p => [...parents, p])];
+        return [...acc, ...this.resources[top(parents)].parents.map(p => [...parents, p]).reverse()];
       }, []);
     }
     return assemble(preassemble);
