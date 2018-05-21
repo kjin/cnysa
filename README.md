@@ -34,7 +34,7 @@ Generate a special `AsyncResource` with the given tag. If `tag` is not specified
 
 The special `AsyncResource` will be displayed as a single event in cyan. This is good for determining the current running async resource.
 
-## `Cnysa#getAsyncSnapshot(options: CnysaAsyncSnapshotOptions)`
+## `Cnysa#createAsyncSnapshot(options: CnysaSnapshotOptions)`
 
 * `options.width`: Maximum number of characters to print on a single line before wrapping. Defaults to the current terminal width.
 * `options.ignoreTypes`: A string or RegExp to filter out `AsyncResource` types.
@@ -43,6 +43,14 @@ The special `AsyncResource` will be displayed as a single event in cyan. This is
 * `options.format`: A string that represents how the output should be formatted. Currently, the available options are `'default'` and `'svg'` (which uses [`ansi-to-svg`](https://github.com/F1LT3R/ansi-to-svg)).
 
 Returns a formatted async ancestry tree. Great for printing in the console.
+
+All options are optional.
+
+## `Cnysa#createAsyncStackTrace(options: CnysaStackTraceOptions)`
+
+* `options.ignoreTypes`: A string or RegExp to filter out `AsyncResource` types.
+
+__Experimental.__ Returns a formatted async stack trace.
 
 All options are optional.
 
