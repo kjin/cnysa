@@ -22,7 +22,7 @@
   "repository": "https://github.com/kjin/cnysa",
   "license": "ISC",
   "dependencies": {
-    "ansi-to-svg": "^1.4.1",
+    "ansi-to-svg": "^1.4.2",
     "chalk": "^2.3.2",
     "left-pad": "^1.2.0",
     "string-length": "^2.0.0"
