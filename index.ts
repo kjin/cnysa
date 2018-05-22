@@ -165,7 +165,7 @@ export class Cnysa {
    * Default options for createStackTrace.
    */
   public static STACK_TRACE_DEFAULTS: CnysaStackTraceOptions = {
-    ignoreTypes: / /
+    ignoreTypes: /ignore/
   };
 
   /**
@@ -173,7 +173,7 @@ export class Cnysa {
    */
   public static SNAPSHOT_DEFAULTS: CnysaSnapshotOptions = {
     width: process.stdout.columns || 80,
-    ignoreTypes: / /,
+    ignoreTypes: /ignore/,
     roots: [],
     padding: 1,
     format: 'default'
