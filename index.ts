@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import leftPad = require('left-pad');
 import { Writable } from 'stream';
 import { createStackTrace, StackTrace } from './stack-trace';
-import { assemble } from './assemble';
+import { semble } from 'semble';
 
 export type Serializable<T> = {
   [P in keyof T]: T[P] extends string|number|boolean ? T[P] :
@@ -342,8 +342,8 @@ export class Cnysa {
     const config = this.canonicalizeStackTraceOptions(options);
     const prepare = (c: NodeJS.CallSite, lead: string = '>') => `${lead} ${chalk.cyan(c.getFunctionName() || '(anonymous)')} (${c.getFileName()}:${c.getLineNumber()})`;
     const prepareNoLead = (c: NodeJS.CallSite) => prepare(c);
-    // A string[][][] to format into a grid using the assemble() function.
-    const preassemble = [[[chalk.cyan('*'), ...createStackTrace().slice(2).map(prepareNoLead)]]];
+    // A string[][] to format into a grid using the assemble() function.
+    const preassemble = [[[chalk.cyan('*'), ...createStackTrace().slice(2).map(prepareNoLead)].join('\n')]];
     let ancestryGraphQueue = this.currentScopes.map(x => [x.id]).reverse();
     while (ancestryGraphQueue.length > 0) {
       // Filter out ignored types.
@@ -360,7 +360,7 @@ export class Cnysa {
               chalk.magenta(`${this.resources[top(parents)].uid}`)
             ].join('-')} ${chalk.yellow(this.resources[top(parents)].type)}`,
             ...this.resources[top(parents)].stack.map(prepareNoLead)
-          ]
+          ].join('\n')
         )
       );
       // Go back one level in the ancestry graph.
@@ -371,7 +371,7 @@ export class Cnysa {
         return [...acc, ...this.resources[top(parents)].parents.map(p => [...parents, p]).reverse()];
       }, []);
     }
-    return assemble(preassemble);
+    return semble(preassemble);
   }
 
   /**

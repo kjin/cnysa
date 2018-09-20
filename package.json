@@ -25,6 +25,7 @@
     "ansi-to-svg": "^1.4.2",
     "chalk": "^2.3.2",
     "left-pad": "^1.2.0",
+    "semble": "^0.1.1",
     "string-length": "^2.0.0"
   },
   "devDependencies": {
