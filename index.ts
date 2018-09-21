@@ -1,8 +1,6 @@
 import * as ah from 'async_hooks';
 import chalk, { Chalk } from 'chalk';
-import * as fs from 'fs';
 import leftPad = require('left-pad');
-import { Writable } from 'stream';
 import { createStackTrace, StackTrace } from './stack-trace';
 import { semble } from 'semble';
 
@@ -25,15 +23,20 @@ export interface CnysaSnapshotOptions {
    */
   width: number;
   /**
-   * A RegExp to filter out `AsyncResource` types.
+   * Only AsyncResources with types that do not match this regular expression
+   * will be shown.
    */
   ignoreTypes: RegExp;
   /**
-   * A list of `AsyncResource` IDs that must be an ancestor of a given
-   * `AsyncResource` for it to be displayed. The default value, an empty list,
-   * is equivalent to specifying no constraint on ancestry.
+   * Only AsyncResources that have an ancestor whose type matches this regular
+   * expression will be shown.
    */
-  roots: number[];
+  rootTypes: RegExp;
+  /**
+   * AsyncResources with types that match this regular expression will only have
+   * their initialization event shown.
+   */
+  markTypes: RegExp;
   /**
    * A number that represents the amount of space between each depicted event.
    */
@@ -174,7 +177,8 @@ export class Cnysa {
   public static SNAPSHOT_DEFAULTS: CnysaSnapshotOptions = {
     width: process.stdout.columns || 80,
     ignoreTypes: /ignore/,
-    roots: [],
+    rootTypes: /.*/,
+    markTypes: /\*$/,
     padding: 1,
     format: 'default'
   };
@@ -304,6 +308,10 @@ export class Cnysa {
     const opts: CnysaSnapshotOptions | Serializable<CnysaSnapshotOptions> = Object.assign({}, Cnysa.SNAPSHOT_DEFAULTS, this.globalOptions, options);
     opts.ignoreTypes = typeof opts.ignoreTypes === 'string' ?
       new RegExp(opts.ignoreTypes) : opts.ignoreTypes;
+    opts.rootTypes = typeof opts.rootTypes === 'string' ?
+      new RegExp(opts.rootTypes) : opts.rootTypes;
+    opts.markTypes = typeof opts.markTypes === 'string' ?
+        new RegExp(opts.markTypes) : opts.markTypes;
     return opts as CnysaSnapshotOptions;
   }
 
@@ -393,7 +401,7 @@ export class Cnysa {
     }
     const ignoredResources = Object.keys(this.resources).filter(key => {
       const k = Number(key);
-      return this.resources[k].type.match(config.ignoreTypes) || !this.hasAncestor(this.resources[k], config.roots);
+      return this.resources[k].type.match(config.ignoreTypes) || !this.hasAncestor(this.resources[k], config.rootTypes);
     }).reduce((acc: Set<number>, key) => acc.add(Number(key)), new Set());
     const rowHeaderLength = Object.keys(this.resources).reduce((acc, key) => {
       const k = Number(key);
@@ -420,13 +428,16 @@ export class Cnysa {
     for (const event of paddedEvents) {
       Object.keys(this.resources).forEach(key => {
         const k = Number(key);
+        const initOnly = event.uid >= 0 && !!this.resources[event.uid].type.match(config.markTypes);
         if (!eventStrings[k]) {
           eventStrings[k] = { alive: false, str: new StringRowsBuilder(adjustedWidth) };
         }
         if (event.uid === k) {
           if (event.type === 'init') {
-            eventStrings[k].str.appendChar('*', 'green');
-            eventStrings[k].alive = true;
+            eventStrings[k].str.appendChar('*', initOnly ? 'cyan' : 'green');
+            eventStrings[k].alive = !initOnly && true;
+          } else if (initOnly) {
+            eventStrings[k].str.appendChar(' ');
           } else if (event.type === 'before') {
             eventStrings[k].str.appendChar('{', 'blue');
             stack.push(k);
@@ -467,7 +478,7 @@ export class Cnysa {
             }
             return false;
           };
-          if (event.type === 'internal' && maybeVertical('cyan')) {
+          if ((event.type === 'internal' || initOnly) && maybeVertical('cyan')) {
             return;
           } else if (event.type === 'init' && maybeVertical('green')) {
             return;
